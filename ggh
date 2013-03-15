@@ -9,7 +9,7 @@ show_usage () {
     echo '
 ggh - git-gerrit helper - 0.1
 
-"ggh setup"  - Setup the git aliases listed below in your global git config.  Note, each git alias just calls through to ggh with the arguments passed in.  So ggh could be used directly without the git aliases.
+"ggh setup" - Setup the git aliases listed below in your global git config. Note, each git alias just calls through to ggh with the arguments passed in. So ggh could be used directly without the git aliases.
 
 Git Aliases
 
@@ -18,6 +18,8 @@ Git Aliases
 "git start <local branch> <remote branch>" ---> git checkout -b $1 origin/$2
 
 "git upload" ---> show summary of changes to be uploaded, approve, upload
+
+"git topic-push" ---> pushes topic branch directly to remote branch
 
 "git prune-branches" ----> remove all branches not ahead of the remote.'
 
@@ -38,6 +40,9 @@ cmd_setup () {
     echo "Setting up 'git upload'"
     git config --global alias.upload '!bash ggh upload'
 
+    echo "Setting up 'git topic-push'"
+    git config --global alias.topic-push '!bash ggh topic-push'
+
     echo "Setting up 'git prune-branches'"
     git config --global alias.prune-branches '!bash ggh prune-branches'
    
@@ -50,13 +55,13 @@ cmd_gerrit_clone () {
     cur_email=`git config user.email`
 
     echo
-    echo -n "Name [$cur_name]:"
+echo -n "Name [$cur_name]:"
     read name
     echo -n "Email [$cur_email]:"
     read email
     echo
 
-    git clone $1
+git clone $1
     project=`echo $1 | sed -E "s/.*\///" | sed -E "s/\.git$//"`
     port=`echo $1 | sed -E "s/.*:([0-9]*).*/\1/"`
     gerrit=`echo $1 | sed -E "s/ssh:\/\/([^:\/]*).*/\1/"`
@@ -64,26 +69,26 @@ cmd_gerrit_clone () {
 
     if [ -z "$port" ]
     then
-	scp $gerrit:hooks/commit-msg .git/hooks
+scp $gerrit:hooks/commit-msg .git/hooks
     else
-	scp -p -P $port $gerrit:hooks/commit-msg .git/hooks
+scp -p -P $port $gerrit:hooks/commit-msg .git/hooks
     fi
 
-    local_branch=`git symbolic-ref HEAD | sed -e 's|^refs/heads/||'`
+local_branch=`git symbolic-ref HEAD | sed -e 's|^refs/heads/||'`
     git config branch.autosetuprebase always
     git config branch.$local_branch.rebase true
 
-    if [ -z "$name" ]
+if [ -z "$name" ]
     then
-        name=$cur_name
+name=$cur_name
     fi
 
-    if [ -z "$email" ]
+if [ -z "$email" ]
     then
-	email=$cur_email
-    fi    
+email=$cur_email
+    fi
 
-    git config user.name "$name"
+git config user.name "$name"
     git config user.email "$email"
 
 }
@@ -100,8 +105,8 @@ cmd_upload () {
 
     if [ -z "$remote_branch" ]
     then
-	echo "ggh error: This branch is not tracking a remote branch, upload not possible."
-	exit 1
+echo "ggh error: This branch is not tracking a remote branch, upload not possible."
+exit 1
     fi
 
     # make sure you don't need to pull from origin
@@ -109,8 +114,8 @@ cmd_upload () {
     behind=`git log --oneline "origin/$remote_branch" ^$local_branch`
     if [ -n "$behind" ]
     then
-	echo "Can not upload changes, your branch is behind origin/$remote_branch.  Please rebase changes before uploading to avoid merge conflicts: git rebase origin/$remote_branch"
-	exit 1
+echo "Can not upload changes, your branch is behind origin/$remote_branch. Please rebase changes before uploading to avoid merge conflicts: git rebase origin/$remote_branch"
+exit 1
     fi
 
     #show preview
@@ -118,21 +123,64 @@ cmd_upload () {
     
     #make user confirm upload
     echo
-    echo -n "Are you sure you would like to upload these changes for review? [y/N]"
+echo -n "Are you sure you would like to upload these changes for review? [y/N]"
     read -n1 answer
-    echo 
-    
-    if [ -z "$answer" ]
+    echo
+if [ -z "$answer" ]
     then
-	answer="n"
+answer="n"
     fi
 
     # push if they said yes
     if [ "$answer" == "y" -o "$answer" == "Y" ]
     then
-	git push origin HEAD:refs/for/$remote_branch
+git push origin HEAD:refs/for/$remote_branch
     else
-	echo "Aborting upload."
+echo "Aborting upload."
+    fi
+
+}
+
+cmd_topic_upload () {
+    ensure_status_clean
+
+    local_branch=`git symbolic-ref HEAD | sed -e 's|^refs/heads/||'`
+    remote_branch=`git config branch.$local_branch.merge | sed -e 's|^refs/heads/||'`
+
+    if [ -z "$remote_branch" ]
+    then
+echo "ggh error: This branch is not tracking a remote branch, upload not possible."
+exit 1
+    fi
+
+    # make sure you don't need to pull from origin
+    git fetch origin
+    behind=`git log --oneline "origin/$remote_branch" ^$local_branch`
+    if [ -n "$behind" ]
+    then
+echo "Can not upload changes, your branch is behind origin/$remote_branch. Please rebase changes before uploading to avoid merge conflicts: git rebase origin/$remote_branch"
+exit 1
+    fi
+
+    #show preview
+    git log --graph --stat origin/$remote_branch..
+    
+    #make user confirm upload
+    echo
+echo -n "Are you sure you would like to upload these changes for review? [y/N]"
+    read -n1 answer
+    echo
+if [ -z "$answer" ]
+    then
+answer="n"
+    fi
+
+    # push if they said yes
+    if [ "$answer" == "y" -o "$answer" == "Y" ]
+    then
+git push origin $local_branch:$remote_branch
+    else
+echo "Aborting upload."
     fi
 
 }
@@ -145,57 +193,61 @@ cmd_prune () {
     exclude=`git symbolic-ref HEAD | sed -e 's|^refs/heads/||'`
 
     for branch in $(git for-each-ref --format='%(refname)' refs/heads/); do
-	simple_branch=`echo $branch | sed -e 's|^refs/heads/||'`
-	remote=`git config branch.$simple_branch.merge | sed -e 's|^refs/heads/||'`
-	
-	#don't delete branches that aren't tracking remotes
-	if [ -z "$remote" ]
-	then
-	    continue
-	fi
+simple_branch=`echo $branch | sed -e 's|^refs/heads/||'`
+remote=`git config branch.$simple_branch.merge | sed -e 's|^refs/heads/||'`
 
-	diff=`git log --oneline "$branch" ^origin/$remote`
-	if [ "$simple_branch" != "$exclude" -a -z "$diff" ]
-	then
-	    git branch -D $simple_branch
-	fi
-    done
+#don't delete branches that aren't tracking remotes
+if [ -z "$remote" ]
+then
+continue
+fi
+
+diff=`git log --oneline "$branch" ^origin/$remote`
+if [ "$simple_branch" != "$exclude" -a -z "$diff" ]
+then
+git branch -D $simple_branch
+fi
+done
 
 }
 
 ensure_status_clean () {
     #check for clean status
     status=`git status -s`
-    if [ -n "$status" ] 
+    if [ -n "$status" ]
     then
-	echo "ggh error: Could not complete command. Git status is not clean, please commit or stash changes and try again."
-	exit 1
+echo "ggh error: Could not complete command. Git status is not clean, please commit or stash changes and try again."
+exit 1
     fi
 }
 
 case "$1" in
     setup)
-	cmd_setup
-	;;
+cmd_setup
+;;
 
     gerrit-clone)
-	cmd_gerrit_clone $2
-	;;
+cmd_gerrit_clone $2
+;;
 
     start)
-	cmd_start $2 $3
-	;;
+cmd_start $2 $3
+;;
 
     upload)
-	cmd_upload
-	;;
+cmd_upload
+;;
+
+    topic-push)
+cmd_topic_upload
+;;
 
     prune-branches)
-	cmd_prune
-	;;
+cmd_prune
+;;
 
     *)
-	show_usage
-	;;
+show_usage
+;;
 
 esac
